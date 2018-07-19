@@ -2,102 +2,103 @@
 require "logstash/inputs/base"
 require "logstash/namespace"
 require "stud/interval"
-require "socket" # for Socket.gethostname
-
-# Generate a repeating message.
-#
-# This plugin is intented only as an example.
+require "net/http"
+require "uri"
+require "mechanize"
 
 class LogStash::Inputs::Crawler < LogStash::Inputs::Base
   config_name "crawler"
 
   # If undefined, Logstash will complain, even if codec is unused.
-  #default :codec, "plain"
   default :codec, "plain"
 
-  #Entry point URL
-  #config :init_url, :validate => :string, :required => true
-
-  #The max deph the plugin should reach
-  #config :max_deph, :validate => :number, :default => 3
-
   # The message string to use in the event.
-  config :message, :validate => :string, :default => "Hello World!"
+  config :url, :validate => :string, :required => true
 
-  # Set how frequently messages should be sent.
-  #
-  # The default, `1`, means send a message every second.
-  config :interval, :validate => :number, :default => 1
+  #Set de interval for stoppable_sleep
+  config :interval, :validate => :number, :default => 86400
 
-  #EXAMPLE reddit tag
-  #config :subreddit, :validate => :string, :default => 'elastic'
+  #Set de max number of urls that go to sniff
+  config :url_max, :validate => :number, :default => 10
 
   public
   def register
-    @host = Socket.gethostname
-    #@http = Net::HTTP.new('reddit.com', 443)
-    #@get = Net::HTTP::Get.new("/r/#{@subreddit}/.json")
-    #@http.use_ssl = true
+    @urls = []
+    @agent = Mechanize.new
+    @agent.agent.http.verify_mode = OpenSSL::SSL::VERIFY_NONE
   end # def register
+
 
   def run(queue)
     # we can abort the loop if stop? becomes true
     while !stop?
-      event = LogStash::Event.new("message" => @message, "host" => @host)
-      decorate(event)
-      queue << event
-      # because the sleep interval can be big, when shutdown happens
-      # we want to be able to abort the sleep
-      # Stud.stoppable_sleep will frequently evaluate the given block
-      # and abort the sleep(@interval) if the return value is true
+      start_crawl(queue)      
       Stud.stoppable_sleep(@interval) { stop? }
     end # loop
   end # def run
 
-  #def run(queue)
-    # we can abort the loop if stop? becomes true
-   # while !stop?
-     # response = @http.request(@get)
-
-      #########################################################################################################
-      #event = LogStash::Event.new('web_content' => response)
-
-      #decorate(event)
-
-      #queue << event
-      #########################################################################################################
-
-
-      #json = JSON.parse(response.body)
-
-      #json['data']['children'].each do |child|
-
-        #event = LogStash::Event.new('message' => child, 'host' => @host, 'web_content' => response)
-
-        #decorate(event)
-
-        #queue << event
-
-      #end
-
-      #Stud.stoppable_sleep(@interval) { stop? }
-
-      # event = LogStash::Event.new("message" => @message, "host" => @host)
-      # decorate(event)
-      # queue << event
-      # # because the sleep interval can be big, when shutdown happens
-      # # we want to be able to abort the sleep
-      # # Stud.stoppable_sleep will frequently evaluate the given block
-      # # and abort the sleep(@interval) if the return value is true
-      # Stud.stoppable_sleep(@interval) { stop? }
-    end # loop
-  #end # def run
 
   def stop
     # nothing to do in this case so it is not necessary to define stop
     # examples of common "stop" tasks:
-    #  * close sockets (unblocking blocking reads/accepts)
+    #  * close sockets (unblocking blocking reads/accets)
     #  * cleanup temporary files
     #  * terminate spawned threads
   end
+
+  def start_crawl(queue)
+		begin
+				get_urls_for_page(@url,queue)				
+		rescue Exception => e
+      puts "FALLO DE CRAWL"
+		end
+  end
+  
+  def get_urls_for_page(url,queue)
+		page_content = get_page_content url	
+		# Regex to get all "links" in the page
+    urlsa = page_content.scan(/\<a href\=(\"(http|https)\:.*?\")/)		
+		urlsa.each { |u| 
+			sanitized_url = u.first.gsub(/\"/, '').strip
+			if (@urls.include?(sanitized_url) == false) && (@urls.length <= @url_max)
+        @urls.push(sanitized_url)
+        pagina = @agent.get(sanitized_url)
+        content = pagina.body
+        evento = LogStash::Event.new("link" => sanitized_url , "contenido" => content)
+        decorate(evento)
+        queue << evento
+        puts "/*******************************************************************************/"
+        puts @urls.length
+        puts "/*******************************************************************************/"
+				# If Unexpected Error happens when trying to fetch URLs move on to the next URL
+				begin
+					get_urls_for_page(sanitized_url,queue)	
+        rescue Exception => e
+          puts "/*******************************************************************************/"
+          puts "Problema al obtener el contenido de : " + sanitized_url
+          puts "/*******************************************************************************/"
+					next
+				end
+			end
+		}
+		return @urls
+	end
+    
+  
+  def get_page_content url
+		uri = URI(url)
+		request = Net::HTTP::Get.new(uri)
+		http = Net::HTTP.new(uri.host, uri.port)	
+		# Neet to enable use of SSL if the URL protocol is HTTPS
+		http.use_ssl = (uri.scheme == "https")
+		response = http.request(request)
+		# Check if URL needs to be forwarded because of redirect
+		case response
+		when Net::HTTPSuccess
+			return response.body
+		when Net::HTTPMovedPermanently || Net::HTTPRedirection
+			get_page_content response['location']
+		end
+	end
+
 end # class LogStash::Inputs::Crawler
