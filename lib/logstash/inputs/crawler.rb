@@ -22,83 +22,82 @@ class LogStash::Inputs::Crawler < LogStash::Inputs::Base
   config :url_max, :validate => :number, :default => 10
 
   public
-  def register
+   def register
     @urls = []
     @agent = Mechanize.new
     @agent.agent.http.verify_mode = OpenSSL::SSL::VERIFY_NONE
-  end # def register
+   end # def register
 
 
-  def run(queue)
+   def run(queue)
     # we can abort the loop if stop? becomes true
     while !stop?
       start_crawl(queue)      
       Stud.stoppable_sleep(@interval) { stop? }
     end # loop
-  end # def run
+   end # def run
 
 
-  def stop
+   def stop
     # nothing to do in this case so it is not necessary to define stop
     # examples of common "stop" tasks:
     #  * close sockets (unblocking blocking reads/accets)
     #  * cleanup temporary files
     #  * terminate spawned threads
+   end
+
+   def start_crawl(queue)
+	begin
+		get_urls_for_page(@url,queue)				
+	rescue Exception => e
+      		puts "FALLO DE CRAWL"
+	end
+   end
+  
+   def get_urls_for_page(url,queue)
+	page_content = get_page_content url	
+	# Regex to get all "links" in the page
+    	urlsa = page_content.scan(/\<a href\=(\"(http|https)\:.*?\")/)		
+	urlsa.each { |u| 
+		sanitized_url = u.first.gsub(/\"/, '').strip
+		if (@urls.include?(sanitized_url) == false) && (@urls.length <= @url_max)
+      			@urls.push(sanitized_url)
+        		pagina = @agent.get(sanitized_url)
+        		content = pagina.body
+        		evento = LogStash::Event.new("link" => sanitized_url , "contenido" => content)
+        		decorate(evento)
+        		queue << evento
+        		puts "/*******************************************************************************/"
+        		puts @urls.length
+        		puts "/*******************************************************************************/"
+			# If Unexpected Error happens when trying to fetch URLs move on to the next URL
+			begin
+				get_urls_for_page(sanitized_url,queue)	
+        		rescue Exception => e
+          			puts "/*******************************************************************************/"
+          			puts "Problema al obtener el contenido de : " + sanitized_url
+          			puts "/*******************************************************************************/"
+				next
+			end
+		end
+	}
+	return @urls
   end
 
-  def start_crawl(queue)
-		begin
-				get_urls_for_page(@url,queue)				
-		rescue Exception => e
-      puts "FALLO DE CRAWL"
-		end
-  end
-  
-  def get_urls_for_page(url,queue)
-		page_content = get_page_content url	
-		# Regex to get all "links" in the page
-    urlsa = page_content.scan(/\<a href\=(\"(http|https)\:.*?\")/)		
-		urlsa.each { |u| 
-			sanitized_url = u.first.gsub(/\"/, '').strip
-			if (@urls.include?(sanitized_url) == false) && (@urls.length <= @url_max)
-        @urls.push(sanitized_url)
-        pagina = @agent.get(sanitized_url)
-        content = pagina.body
-        evento = LogStash::Event.new("link" => sanitized_url , "contenido" => content)
-        decorate(evento)
-        queue << evento
-        puts "/*******************************************************************************/"
-        puts @urls.length
-        puts "/*******************************************************************************/"
-				# If Unexpected Error happens when trying to fetch URLs move on to the next URL
-				begin
-					get_urls_for_page(sanitized_url,queue)	
-        rescue Exception => e
-          puts "/*******************************************************************************/"
-          puts "Problema al obtener el contenido de : " + sanitized_url
-          puts "/*******************************************************************************/"
-					next
-				end
-			end
-		}
-		return @urls
-	end
-    
-  
   def get_page_content url
-		uri = URI(url)
-		request = Net::HTTP::Get.new(uri)
-		http = Net::HTTP.new(uri.host, uri.port)	
-		# Neet to enable use of SSL if the URL protocol is HTTPS
-		http.use_ssl = (uri.scheme == "https")
-		response = http.request(request)
-		# Check if URL needs to be forwarded because of redirect
-		case response
+	uri = URI(url)
+	request = Net::HTTP::Get.new(uri)
+	http = Net::HTTP.new(uri.host, uri.port)	
+	# Neet to enable use of SSL if the URL protocol is HTTPS
+	http.use_ssl = (uri.scheme == "https")
+	response = http.request(request)
+	# Check if URL needs to be forwarded because of redirect
+	case response
 		when Net::HTTPSuccess
 			return response.body
 		when Net::HTTPMovedPermanently || Net::HTTPRedirection
 			get_page_content response['location']
-		end
 	end
+  end
 
 end # class LogStash::Inputs::Crawler
