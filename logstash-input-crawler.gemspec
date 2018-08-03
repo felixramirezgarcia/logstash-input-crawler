@@ -1,9 +1,9 @@
 Gem::Specification.new do |s|
   s.name          = 'logstash-input-crawler'
-  s.version       = '0.1.4'
+  s.version       = '1.0.0'
   s.licenses      = ['Apache-2.0']
-  s.summary       = 'EXAMPLE: Write a short summary, because Rubygems requires one.'
-  s.description   = 'JUST sAN EXAMPLE: Write a longer description or delete this line.'
+  s.summary       = 'This plugin get the links and the html content from a initial page .'
+  s.description   = 'This plugin need set the initial url.'
   s.homepage      = 'https://github.com/felixramirezgarcia/logstash-input-crawler'
   s.authors       = ['Felix R G']
   s.email         = 'felixramirezgarcia@correo.ugr.es'

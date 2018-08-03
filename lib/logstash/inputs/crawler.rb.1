@@ -17,7 +17,7 @@ class LogStash::Inputs::Crawler < LogStash::Inputs::Base
   config :url, :validate => :string, :required => true
 
   #Set de interval for stoppable_sleep 
-  config :interval, :validate => :number, :default => 86400
+  config :interval, :validate => :number, :default => 200
 
   public
   def register
@@ -53,7 +53,7 @@ class LogStash::Inputs::Crawler < LogStash::Inputs::Base
   end
 
   def crawl_site( starting_at, &each_page )
-        files = %w[png jpeg jpg gif svg txt js css zip gz asp PNG JPEG JPG GIF SVG TXT JS CSS ZIP GZ ASP]
+        files = %w[png jpeg jpg gif svg txt js css zip gz asp html htm PNG JPEG JPG GIF SVG TXT JS CSS ZIP GZ ASP HTML HTM]
         starting_uri = URI.parse(starting_at)
       
         crawl_page = ->(page_uri) do              # A re-usable mini-function
